@@ -12,42 +12,19 @@ verify that you have a working development environment.
 
 ## Build and run the devcontainer outside VS Code
 
-First build the devcontainer:
+Run the following command from the root of the repository:
 
 ```cmd
-docker build -t bazel_workshop_devcontainer .
-```
-
-The run it like this:
-
-```cmd
-docker run -it \
-    -v ".:/workspaces/bazel-workshop-2024:z" \
-    --workdir /workspaces/bazel-workshop-2024 \
-    bazel_workshop_devcontainer
+./enter-docker.sh
 ```
 
 ## Verify working development environment
 
-Run these commands inside that termainal to verify that you have a working
+Run this command inside the docker container to verify that you have a working
 development environment:
 
 ```cmd
-cd project1
 bazel --version
 ```
 
 This should report back `bazel 7.3.1`.
-
-In total it should look something like this:
-
-```
-To run a command as administrator (user "root"), use "sudo <command>".
-See "man sudo_root" for details.
-
-ubuntu@d533a5ea7d39:/workspaces/bazel-workshop-2024$ cd project1/
-ubuntu@d533a5ea7d39:/workspaces/bazel-workshop-2024/project1$ bazel --version
-2024/09/30 09:08:34 Downloading https://releases.bazel.build/7.3.1/release/bazel-7.3.1-linux-x86_64...
-Downloading: 68 MB out of 68 MB (100%)
-bazel 7.3.1
-```

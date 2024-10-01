@@ -11,11 +11,14 @@ USER root
 RUN \
     apt-get update && \
     apt-get --assume-yes install --no-install-recommends \
+        build-essential \
         ca-certificates \
         curl \
         git \
         git-lfs \
         jq \
+        libasio-dev \
+        libcurl4-openssl-dev \
         make \
         openssh-client \
         python3 \
@@ -45,3 +48,7 @@ RUN dpkg-reconfigure debconf -f noninteractive -p critical && \
 
 USER ${USERNAME}
 WORKDIR /home/${USERNAME}
+
+# Pre-download Bazel 7.3.1
+COPY .bazelversion /tmp/.bazelversion
+RUN cd /tmp/ && bazel --version

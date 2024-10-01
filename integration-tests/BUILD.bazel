@@ -1,0 +1,18 @@
+sh_test(
+    name = "c_cpp_integration_test",
+    size = "small",
+    srcs = [
+        ":c-cpp.sh",
+    ],
+    args = [
+        "$(rootpath //c-client)",
+        "$(rootpath //cpp-server)",
+    ],
+    data = [
+        "//c-client",
+        "//cpp-server",
+    ],
+    tags = [
+        "block-network",
+    ],
+)

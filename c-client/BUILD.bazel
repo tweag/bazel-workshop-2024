@@ -1,0 +1,8 @@
+cc_binary(
+    name = "c-client",
+    srcs = [
+        "main.c",
+    ],
+    linkopts = ["-lcurl"],
+    visibility = ["//visibility:public"],
+)

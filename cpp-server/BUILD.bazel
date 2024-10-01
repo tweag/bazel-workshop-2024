@@ -1,0 +1,17 @@
+cc_library(
+    name = "crow",
+    hdrs = glob(["crow/**/*.h", "crow/**/*.hpp"]),
+    strip_include_prefix = "crow/",
+)
+
+cc_binary(
+    name = "cpp-server",
+    copts = ["-std=c++17"],
+    srcs = [
+        "server.cpp",
+    ],
+    deps = [
+        ":crow",
+    ],
+    visibility = ["//visibility:public"],
+)
