@@ -1,5 +1,15 @@
 # Introductory workshop for Bazel
 
+## The code base
+
+This is the Cookie Machine project. It implements a simple HTTP API for ordering
+cookies, and querying the status of a cookie order. It consists of a client
+written in C, a server written in C++, and a simple integration test to
+demonstrate use of the API.
+
+The actual code here _does not matter_. It only serves as an example code base
+which we can build with Bazel.
+
 ## Use the devcontainer inside VS Code
 
 Start VS Code in this project directory. VS Code should automatically recognize
