@@ -58,6 +58,19 @@ RUN chown -R $UID:$UID /bazel_cache
 USER ${USERNAME}
 WORKDIR /home/${USERNAME}
 
-# Pre-download Bazel via Bazelisk
+# Pre-download Bazel via Bazelisk, also pre-download LLVM
 COPY .bazelversion /tmp/.bazelversion
-RUN cd /tmp/ && touch WORKSPACE && bazel --version
+RUN <<EOF0
+cat > "/tmp/WORKSPACE" <<EOF1
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+http_archive(
+    name = "toolchains_llvm",
+    sha256 = "e3fb6dc6b77eaf167cb2b0c410df95d09127cbe20547e5a329c771808a816ab4",
+    strip_prefix = "toolchains_llvm-v1.2.0",
+    canonical_id = "v1.2.0",
+    url = "https://github.com/bazel-contrib/toolchains_llvm/releases/download/v1.2.0/toolchains_llvm-v1.2.0.tar.gz",
+)
+EOF1
+cd /tmp/ && bazel sync --only=toolchains_llvm
+EOF0
