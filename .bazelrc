@@ -1,1 +1,7 @@
+# Persist Bazel cache and shell history:
+startup --output_user_root=/bazel_cache/output_user_root
+common --disk_cache=/bazel_cache/disk_cache
+common --repository_cache=/bazel_cache/repository_cache
+
+# Do not enable bzlmod, since it is out of scope:
 common --noenable_bzlmod
