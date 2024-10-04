@@ -2,6 +2,7 @@ FROM ubuntu:24.04
 
 ARG USERNAME=ubuntu
 ARG DEBIAN_FRONTEND=noninteractive
+ARG UID=1000
 
 ENV LC_ALL=C.UTF-8
 ENV LANG=C.UTF-8
@@ -45,6 +46,11 @@ RUN dpkg-reconfigure debconf -f noninteractive -p critical && \
     rm -f /etc/apt/apt.conf.d/docker-clean && \
     mkdir -p /home/${USERNAME}/.cache /home/${USERNAME}/.ssh && \
     chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}
+
+RUN mkdir /command_history
+RUN mkdir /bazel_cache
+RUN chown -R $UID:$UID /command_history
+RUN chown -R $UID:$UID /bazel_cache
 
 USER ${USERNAME}
 WORKDIR /home/${USERNAME}
