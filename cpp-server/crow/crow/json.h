@@ -14,6 +14,7 @@
 #include <memory>
 #include <vector>
 #include <cmath>
+#include <cfloat>
 
 #include "crow/utility.h"
 #include "crow/settings.h"
@@ -24,7 +25,7 @@ using std::isinf;
 using std::isnan;
 
 
-namespace crow
+namespace crow // NOTE: Already documented in "crow/app.h"
 {
     namespace mustache
     {
@@ -33,6 +34,14 @@ namespace crow
 
     namespace json
     {
+        static inline char to_hex(char c)
+        {
+            c = c & 0xf;
+            if (c < 10)
+                return '0' + c;
+            return 'a' + c - 10;
+        };
+
         inline void escape(const std::string& str, std::string& ret)
         {
             ret.reserve(ret.size() + str.size() + str.size() / 4);
@@ -51,12 +60,6 @@ namespace crow
                         if (c >= 0 && c < 0x20)
                         {
                             ret += "\\u00";
-                            auto to_hex = [](char c) {
-                                c = c & 0xf;
-                                if (c < 10)
-                                    return '0' + c;
-                                return 'a' + c - 10;
-                            };
                             ret += to_hex(c / 16);
                             ret += to_hex(c % 16);
                         }
@@ -105,7 +108,8 @@ namespace crow
             Signed_integer,
             Unsigned_integer,
             Floating_point,
-            Null
+            Null,
+            Double_precision_floating_point
         };
 
         class rvalue;
@@ -457,7 +461,7 @@ namespace crow
             }
 
             /// The list or object value
-            std::vector<rvalue> lo()
+            std::vector<rvalue> lo() const
             {
 #ifndef CROW_JSON_NO_ERROR_CHECK
                 if (t() != type::Object && t() != type::List)
@@ -664,7 +668,7 @@ namespace crow
                 if (it != end() && it->key_ == str)
                     return *it;
 #ifndef CROW_JSON_NO_ERROR_CHECK
-                throw std::runtime_error("cannot find key");
+                throw std::runtime_error("cannot find key: " + str);
 #else
                 static rvalue nullValue;
                 return nullValue;
@@ -781,6 +785,7 @@ namespace crow
                         switch (r.nt())
                         {
                             case num_type::Floating_point: os << r.d(); break;
+                            case num_type::Double_precision_floating_point: os << r.d(); break;
                             case num_type::Signed_integer: os << r.i(); break;
                             case num_type::Unsigned_integer: os << r.u(); break;
                             case num_type::Null: throw std::runtime_error("Number with num_type Null");
@@ -875,8 +880,8 @@ namespace crow
             //static const char* escaped = "\"\\/\b\f\n\r\t";
             struct Parser
             {
-                Parser(char* data, size_t /*size*/):
-                  data(data)
+                Parser(char* data_, size_t /*size*/):
+                  data(data_)
                 {
                 }
 
@@ -1299,6 +1304,9 @@ namespace crow
 
             type t() const { return t_; }
 
+            /// Create an empty json value (outputs "{}" instead of a "null" string)
+            static crow::json::wvalue empty_object() { return crow::json::wvalue::object(); }
+
         private:
             type t_{type::Null};         ///< The type of the value.
             num_type nt{num_type::Null}; ///< The specific type of the number if \ref t_ is a number.
@@ -1315,7 +1323,9 @@ namespace crow
                   ui(value) {}
                 constexpr number(std::int64_t value) noexcept:
                   si(value) {}
-                constexpr number(double value) noexcept:
+                explicit constexpr number(double value) noexcept:
+                  d(value) {}
+                explicit constexpr number(float value) noexcept:
                   d(value) {}
             } num;                                      ///< Value if type is a number.
             std::string s;                              ///< Value if type is a string.
@@ -1354,7 +1364,7 @@ namespace crow
             wvalue(float value):
               returnable("application/json"), t_(type::Number), nt(num_type::Floating_point), num(static_cast<double>(value)) {}
             wvalue(double value):
-              returnable("application/json"), t_(type::Number), nt(num_type::Floating_point), num(static_cast<double>(value)) {}
+              returnable("application/json"), t_(type::Number), nt(num_type::Double_precision_floating_point), num(static_cast<double>(value)) {}
 
             wvalue(char const* value):
               returnable("application/json"), t_(type::String), s(value) {}
@@ -1405,7 +1415,7 @@ namespace crow
                         return;
                     case type::Number:
                         nt = r.nt();
-                        if (nt == num_type::Floating_point)
+                        if (nt == num_type::Floating_point || nt == num_type::Double_precision_floating_point)
                             num.d = r.d();
                         else if (nt == num_type::Signed_integer)
                             num.si = r.i();
@@ -1441,7 +1451,7 @@ namespace crow
                         return;
                     case type::Number:
                         nt = r.nt;
-                        if (nt == num_type::Floating_point)
+                        if (nt == num_type::Floating_point || nt == num_type::Double_precision_floating_point)
                             num.d = r.num.d;
                         else if (nt == num_type::Signed_integer)
                             num.si = r.num.si;
@@ -1511,12 +1521,21 @@ namespace crow
                 return *this;
             }
 
-            wvalue& operator=(double value)
+            wvalue& operator=(float value)
             {
                 reset();
                 t_ = type::Number;
                 num.d = value;
                 nt = num_type::Floating_point;
+                return *this;
+            }
+
+            wvalue& operator=(double value)
+            {
+                reset();
+                t_ = type::Number;
+                num.d = value;
+                nt = num_type::Double_precision_floating_point;
                 return *this;
             }
 
@@ -1653,7 +1672,7 @@ namespace crow
                 }
                 else
                 {
-#if defined(__APPLE__) || defined(__MACH__)
+#if defined(__APPLE__) || defined(__MACH__) || defined(__FreeBSD__) || defined(__ANDROID__) || defined(_LIBCPP_VERSION)
                     o = std::unique_ptr<object>(new object(initializer_list));
 #else
                     (*o) = initializer_list;
@@ -1672,7 +1691,7 @@ namespace crow
                 }
                 else
                 {
-#if defined(__APPLE__) || defined(__MACH__)
+#if defined(__APPLE__) || defined(__MACH__) || defined(__FreeBSD__) || defined(__ANDROID__) || defined(_LIBCPP_VERSION)
                     o = std::unique_ptr<object>(new object(value));
 #else
                     (*o) = value;
@@ -1716,7 +1735,12 @@ namespace crow
                 return (*l)[index];
             }
 
-            int count(const std::string& str)
+            const wvalue& operator[](unsigned index) const
+            {
+                return const_cast<wvalue*>(this)->operator[](index);
+            }
+
+            int count(const std::string& str) const
             {
                 if (t_ != type::Object)
                     return 0;
@@ -1733,6 +1757,11 @@ namespace crow
                 if (!o)
                     o = std::unique_ptr<object>(new object{});
                 return (*o)[str];
+            }
+
+            const wvalue& operator[](const std::string& str) const
+            {
+                return const_cast<wvalue*>(this)->operator[](str);
             }
 
             std::vector<std::string> keys() const
@@ -1813,7 +1842,14 @@ namespace crow
                 out.push_back('"');
             }
 
-            inline void dump_internal(const wvalue& v, std::string& out) const
+            inline void dump_indentation_part(std::string& out, const int indent, const char separator, const int indent_level) const
+            {
+                out.push_back('\n');
+                out.append(indent_level * indent, separator);
+            }
+
+
+            inline void dump_internal(const wvalue& v, std::string& out, const int indent, const char separator, const int indent_level = 0) const
             {
                 switch (v.t_)
                 {
@@ -1822,7 +1858,7 @@ namespace crow
                     case type::True: out += "true"; break;
                     case type::Number:
                     {
-                        if (v.nt == num_type::Floating_point)
+                        if (v.nt == num_type::Floating_point || v.nt == num_type::Double_precision_floating_point)
                         {
                             if (isnan(v.num.d) || isinf(v.num.d))
                             {
@@ -1830,11 +1866,6 @@ namespace crow
                                 CROW_LOG_WARNING << "Invalid JSON value detected (" << v.num.d << "), value set to null";
                                 break;
                             }
-#ifdef _MSC_VER
-#define MSC_COMPATIBLE_SPRINTF(BUFFER_PTR, FORMAT_PTR, VALUE) sprintf_s((BUFFER_PTR), 128, (FORMAT_PTR), (VALUE))
-#else
-#define MSC_COMPATIBLE_SPRINTF(BUFFER_PTR, FORMAT_PTR, VALUE) sprintf((BUFFER_PTR), (FORMAT_PTR), (VALUE))
-#endif
                             enum
                             {
                                 start,
@@ -1842,8 +1873,24 @@ namespace crow
                                 zero
                             } f_state;
                             char outbuf[128];
-                            MSC_COMPATIBLE_SPRINTF(outbuf, "%f", v.num.d);
-                            char *p = &outbuf[0], *o = nullptr; // o is the position of the first trailing 0
+                            if (v.nt == num_type::Double_precision_floating_point)
+                            {
+#ifdef _MSC_VER
+                                sprintf_s(outbuf, sizeof(outbuf), "%.*g", DECIMAL_DIG, v.num.d);
+#else
+                                snprintf(outbuf, sizeof(outbuf), "%.*g", DECIMAL_DIG, v.num.d);
+#endif
+                            }
+                            else
+                            {
+#ifdef _MSC_VER
+                                sprintf_s(outbuf, sizeof(outbuf), "%f", v.num.d);
+#else
+                                snprintf(outbuf, sizeof(outbuf), "%f", v.num.d);
+#endif
+                            }
+                            char* p = &outbuf[0];
+                            char* pos_first_trailing_0 = nullptr;
                             f_state = start;
                             while (*p != '\0')
                             {
@@ -1865,24 +1912,23 @@ namespace crow
                                         if (ch == '0')
                                         {
                                             f_state = zero;
-                                            o = p;
+                                            pos_first_trailing_0 = p;
                                         }
                                         p++;
                                         break;
                                     case zero: // if a non 0 is found (e.g. 1.00004) remove the earlier recorded 0 position and look for more trailing 0s
                                         if (ch != '0')
                                         {
-                                            o = nullptr;
+                                            pos_first_trailing_0 = nullptr;
                                             f_state = decp;
                                         }
                                         p++;
                                         break;
                                 }
                             }
-                            if (o != nullptr) // if any trailing 0s are found, terminate the string where they begin
-                                *o = '\0';
+                            if (pos_first_trailing_0 != nullptr) // if any trailing 0s are found, terminate the string where they begin
+                                *pos_first_trailing_0 = '\0';
                             out += outbuf;
-#undef MSC_COMPATIBLE_SPRINTF
                         }
                         else if (v.nt == num_type::Signed_integer)
                         {
@@ -1898,6 +1944,12 @@ namespace crow
                     case type::List:
                     {
                         out.push_back('[');
+
+                        if (indent >= 0)
+                        {
+                            dump_indentation_part(out, indent, separator, indent_level + 1);
+                        }
+
                         if (v.l)
                         {
                             bool first = true;
@@ -1906,17 +1958,34 @@ namespace crow
                                 if (!first)
                                 {
                                     out.push_back(',');
+
+                                    if (indent >= 0)
+                                    {
+                                        dump_indentation_part(out, indent, separator, indent_level + 1);
+                                    }
                                 }
                                 first = false;
-                                dump_internal(x, out);
+                                dump_internal(x, out, indent, separator, indent_level + 1);
                             }
                         }
+
+                        if (indent >= 0)
+                        {
+                            dump_indentation_part(out, indent, separator, indent_level);
+                        }
+
                         out.push_back(']');
                     }
                     break;
                     case type::Object:
                     {
                         out.push_back('{');
+
+                        if (indent >= 0)
+                        {
+                            dump_indentation_part(out, indent, separator, indent_level + 1);
+                        }
+
                         if (v.o)
                         {
                             bool first = true;
@@ -1925,13 +1994,29 @@ namespace crow
                                 if (!first)
                                 {
                                     out.push_back(',');
+                                    if (indent >= 0)
+                                    {
+                                        dump_indentation_part(out, indent, separator, indent_level + 1);
+                                    }
                                 }
                                 first = false;
                                 dump_string(kv.first, out);
                                 out.push_back(':');
-                                dump_internal(kv.second, out);
+
+                                if (indent >= 0)
+                                {
+                                    out.push_back(' ');
+                                }
+
+                                dump_internal(kv.second, out, indent, separator, indent_level + 1);
                             }
                         }
+
+                        if (indent >= 0)
+                        {
+                            dump_indentation_part(out, indent, separator, indent_level);
+                        }
+
                         out.push_back('}');
                     }
                     break;
@@ -1943,12 +2028,19 @@ namespace crow
             }
 
         public:
-            std::string dump() const
+            std::string dump(const int indent, const char separator = ' ') const
             {
                 std::string ret;
                 ret.reserve(estimate_length());
-                dump_internal(*this, ret);
+                dump_internal(*this, ret, indent, separator);
                 return ret;
+            }
+
+            std::string dump() const override
+            {
+                static constexpr int DontIndent = -1;
+
+                return dump(DontIndent);
             }
         };
 
@@ -1957,14 +2049,16 @@ namespace crow
         {
             int64_t get(int64_t fallback)
             {
-                if (ref.t() != type::Number || ref.nt == num_type::Floating_point)
+                if (ref.t() != type::Number || ref.nt == num_type::Floating_point ||
+                    ref.nt == num_type::Double_precision_floating_point)
                     return fallback;
                 return ref.num.si;
             }
 
             double get(double fallback)
             {
-                if (ref.t() != type::Number || ref.nt != num_type::Floating_point)
+                if (ref.t() != type::Number || ref.nt != num_type::Floating_point ||
+                    ref.nt == num_type::Double_precision_floating_point)
                     return fallback;
                 return ref.num.d;
             }

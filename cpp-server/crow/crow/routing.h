@@ -18,7 +18,7 @@
 #include "crow/mustache.h"
 #include "crow/middleware.h"
 
-namespace crow
+namespace crow // NOTE: Already documented in "crow/app.h"
 {
 
     constexpr const uint16_t INVALID_BP_ID{((uint16_t)-1)};
@@ -96,6 +96,17 @@ namespace crow
         {}
 
         virtual void validate() = 0;
+
+        void set_added()
+        {
+            added_ = true;
+        }
+
+        bool is_added()
+        {
+            return added_;
+        }
+
         std::unique_ptr<BaseRule> upgrade()
         {
             if (rule_to_upgrade_)
@@ -141,6 +152,7 @@ namespace crow
 
         std::string rule_;
         std::string name_;
+        bool added_{false};
 
         std::unique_ptr<BaseRule> rule_to_upgrade_;
 
@@ -250,8 +262,8 @@ namespace crow
                 template<typename Req, typename... Args>
                 struct req_handler_wrapper
                 {
-                    req_handler_wrapper(Func f):
-                      f(std::move(f))
+                    req_handler_wrapper(Func fun):
+                      f(std::move(fun))
                     {
                     }
 
@@ -451,12 +463,12 @@ namespace crow
         void handle_upgrade(const request& req, response&, SocketAdaptor&& adaptor) override
         {
             max_payload_ = max_payload_override_ ? max_payload_ : app_->websocket_max_payload();
-            new crow::websocket::Connection<SocketAdaptor, App>(req, std::move(adaptor), app_, max_payload_, open_handler_, message_handler_, close_handler_, error_handler_, accept_handler_);
+            new crow::websocket::Connection<SocketAdaptor, App>(req, std::move(adaptor), app_, max_payload_, subprotocols_, open_handler_, message_handler_, close_handler_, error_handler_, accept_handler_);
         }
 #ifdef CROW_ENABLE_SSL
         void handle_upgrade(const request& req, response&, SSLAdaptor&& adaptor) override
         {
-            new crow::websocket::Connection<SSLAdaptor, App>(req, std::move(adaptor), app_, max_payload_, open_handler_, message_handler_, close_handler_, error_handler_, accept_handler_);
+            new crow::websocket::Connection<SSLAdaptor, App>(req, std::move(adaptor), app_, max_payload_, subprotocols_, open_handler_, message_handler_, close_handler_, error_handler_, accept_handler_);
         }
 #endif
 
@@ -465,6 +477,12 @@ namespace crow
         {
             max_payload_ = max_payload;
             max_payload_override_ = true;
+            return *this;
+        }
+
+        self_t& subprotocols(const std::vector<std::string>& subprotocols)
+        {
+            subprotocols_ = subprotocols;
             return *this;
         }
 
@@ -507,11 +525,12 @@ namespace crow
         App* app_;
         std::function<void(crow::websocket::connection&)> open_handler_;
         std::function<void(crow::websocket::connection&, const std::string&, bool)> message_handler_;
-        std::function<void(crow::websocket::connection&, const std::string&)> close_handler_;
+        std::function<void(crow::websocket::connection&, const std::string&, uint16_t)> close_handler_;
         std::function<void(crow::websocket::connection&, const std::string&)> error_handler_;
         std::function<bool(const crow::request&, void**)> accept_handler_;
         uint64_t max_payload_;
         bool max_payload_override_ = false;
+        std::vector<std::string> subprotocols_;
     };
 
     /// Allows the user to assign parameters using functions.
@@ -649,6 +668,9 @@ namespace crow
 
         void validate() override
         {
+            if (rule_.at(0) != '/')
+                throw std::runtime_error("Internal error: Routes must start with a '/'");
+
             if (!handler_)
             {
                 throw std::runtime_error(name_ + (!name_.empty() ? ": " : "") + "no handler for url " + rule_);
@@ -709,7 +731,7 @@ namespace crow
             uint16_t blueprint_index{INVALID_BP_ID};
             std::string key;
             ParamType param = ParamType::MAX; // MAX = No param.
-            std::vector<Node*> children;
+            std::vector<Node> children;
 
             bool IsSimpleNode() const
             {
@@ -717,9 +739,15 @@ namespace crow
                        blueprint_index == INVALID_BP_ID &&
                        children.size() < 2 &&
                        param == ParamType::MAX &&
-                       std::all_of(std::begin(children), std::end(children), [](Node* x) {
-                           return x->param == ParamType::MAX;
+                       std::all_of(std::begin(children), std::end(children), [](const Node& x) {
+                           return x.param == ParamType::MAX;
                        });
+            }
+
+            Node& add_child_node()
+            {
+                children.emplace_back();
+                return children.back();
             }
         };
 
@@ -735,7 +763,7 @@ namespace crow
 
         void optimize()
         {
-            for (auto child : head_.children)
+            for (auto& child : head_.children)
             {
                 optimizeNode(child);
             }
@@ -743,34 +771,34 @@ namespace crow
 
 
     private:
-        void optimizeNode(Node* node)
+        void optimizeNode(Node& node)
         {
-            if (node->children.empty())
+            if (node.children.empty())
                 return;
-            if (node->IsSimpleNode())
+            if (node.IsSimpleNode())
             {
-                Node* child_temp = node->children[0];
-                node->key = node->key + child_temp->key;
-                node->rule_index = child_temp->rule_index;
-                node->blueprint_index = child_temp->blueprint_index;
-                node->children = std::move(child_temp->children);
-                delete (child_temp);
+                auto children_temp = std::move(node.children);
+                auto& child_temp = children_temp[0];
+                node.key += child_temp.key;
+                node.rule_index = child_temp.rule_index;
+                node.blueprint_index = child_temp.blueprint_index;
+                node.children = std::move(child_temp.children);
                 optimizeNode(node);
             }
             else
             {
-                for (auto& child : node->children)
+                for (auto& child : node.children)
                 {
                     optimizeNode(child);
                 }
             }
         }
 
-        void debug_node_print(Node* node, int level)
+        void debug_node_print(const Node& node, int level)
         {
-            if (node->param != ParamType::MAX)
+            if (node.param != ParamType::MAX)
             {
-                switch (node->param)
+                switch (node.param)
                 {
                     case ParamType::INT:
                         CROW_LOG_DEBUG << std::string(3 * level, ' ') << "└➝ "
@@ -799,9 +827,9 @@ namespace crow
                 }
             }
             else
-                CROW_LOG_DEBUG << std::string(3 * level, ' ') << "└➝ " << node->key;
+                CROW_LOG_DEBUG << std::string(3 * level, ' ') << "└➝ " << node.key;
 
-            for (auto& child : node->children)
+            for (const auto& child : node.children)
             {
                 debug_node_print(child, level + 1);
             }
@@ -811,7 +839,7 @@ namespace crow
         void debug_print()
         {
             CROW_LOG_DEBUG << "└➙ ROOT";
-            for (auto& child : head_.children)
+            for (const auto& child : head_.children)
                 debug_node_print(child, 1);
         }
 
@@ -823,7 +851,7 @@ namespace crow
         }
 
         //Rule_index, Blueprint_index, routing_params
-        routing_handle_result find(const std::string& req_url, const Node* node = nullptr, unsigned pos = 0, routing_params* params = nullptr, std::vector<uint16_t>* blueprints = nullptr) const
+        routing_handle_result find(const std::string& req_url, const Node& node, unsigned pos = 0, routing_params* params = nullptr, std::vector<uint16_t>* blueprints = nullptr) const
         {
             //start params as an empty struct
             routing_params empty;
@@ -838,10 +866,6 @@ namespace crow
             std::vector<uint16_t> found_BP; //The Blueprint indices to be found
             routing_params match_params;    //supposedly the final matched parameters
 
-            //start from the head node
-            if (node == nullptr)
-                node = &head_;
-
             auto update_found = [&found, &found_BP, &match_params](routing_handle_result& ret) {
                 found_BP = std::move(ret.blueprint_indices);
                 if (ret.rule_index && (!found || found > ret.rule_index))
@@ -855,16 +879,16 @@ namespace crow
             if (pos == req_url.size())
             {
                 found_BP = std::move(*blueprints);
-                return routing_handle_result{node->rule_index, *blueprints, *params};
+                return routing_handle_result{node.rule_index, *blueprints, *params};
             }
 
             bool found_fragment = false;
 
-            for (auto& child : node->children)
+            for (const auto& child : node.children)
             {
-                if (child->param != ParamType::MAX)
+                if (child.param != ParamType::MAX)
                 {
-                    if (child->param == ParamType::INT)
+                    if (child.param == ParamType::INT)
                     {
                         char c = req_url[pos];
                         if ((c >= '0' && c <= '9') || c == '+' || c == '-')
@@ -876,7 +900,7 @@ namespace crow
                             {
                                 found_fragment = true;
                                 params->int_params.push_back(value);
-                                if (child->blueprint_index != INVALID_BP_ID) blueprints->push_back(child->blueprint_index);
+                                if (child.blueprint_index != INVALID_BP_ID) blueprints->push_back(child.blueprint_index);
                                 auto ret = find(req_url, child, eptr - req_url.data(), params, blueprints);
                                 update_found(ret);
                                 params->int_params.pop_back();
@@ -885,7 +909,7 @@ namespace crow
                         }
                     }
 
-                    else if (child->param == ParamType::UINT)
+                    else if (child.param == ParamType::UINT)
                     {
                         char c = req_url[pos];
                         if ((c >= '0' && c <= '9') || c == '+')
@@ -897,7 +921,7 @@ namespace crow
                             {
                                 found_fragment = true;
                                 params->uint_params.push_back(value);
-                                if (child->blueprint_index != INVALID_BP_ID) blueprints->push_back(child->blueprint_index);
+                                if (child.blueprint_index != INVALID_BP_ID) blueprints->push_back(child.blueprint_index);
                                 auto ret = find(req_url, child, eptr - req_url.data(), params, blueprints);
                                 update_found(ret);
                                 params->uint_params.pop_back();
@@ -906,7 +930,7 @@ namespace crow
                         }
                     }
 
-                    else if (child->param == ParamType::DOUBLE)
+                    else if (child.param == ParamType::DOUBLE)
                     {
                         char c = req_url[pos];
                         if ((c >= '0' && c <= '9') || c == '+' || c == '-' || c == '.')
@@ -918,7 +942,7 @@ namespace crow
                             {
                                 found_fragment = true;
                                 params->double_params.push_back(value);
-                                if (child->blueprint_index != INVALID_BP_ID) blueprints->push_back(child->blueprint_index);
+                                if (child.blueprint_index != INVALID_BP_ID) blueprints->push_back(child.blueprint_index);
                                 auto ret = find(req_url, child, eptr - req_url.data(), params, blueprints);
                                 update_found(ret);
                                 params->double_params.pop_back();
@@ -927,7 +951,7 @@ namespace crow
                         }
                     }
 
-                    else if (child->param == ParamType::STRING)
+                    else if (child.param == ParamType::STRING)
                     {
                         size_t epos = pos;
                         for (; epos < req_url.size(); epos++)
@@ -940,7 +964,7 @@ namespace crow
                         {
                             found_fragment = true;
                             params->string_params.push_back(req_url.substr(pos, epos - pos));
-                            if (child->blueprint_index != INVALID_BP_ID) blueprints->push_back(child->blueprint_index);
+                            if (child.blueprint_index != INVALID_BP_ID) blueprints->push_back(child.blueprint_index);
                             auto ret = find(req_url, child, epos, params, blueprints);
                             update_found(ret);
                             params->string_params.pop_back();
@@ -948,7 +972,7 @@ namespace crow
                         }
                     }
 
-                    else if (child->param == ParamType::PATH)
+                    else if (child.param == ParamType::PATH)
                     {
                         size_t epos = req_url.size();
 
@@ -956,7 +980,7 @@ namespace crow
                         {
                             found_fragment = true;
                             params->string_params.push_back(req_url.substr(pos, epos - pos));
-                            if (child->blueprint_index != INVALID_BP_ID) blueprints->push_back(child->blueprint_index);
+                            if (child.blueprint_index != INVALID_BP_ID) blueprints->push_back(child.blueprint_index);
                             auto ret = find(req_url, child, epos, params, blueprints);
                             update_found(ret);
                             params->string_params.pop_back();
@@ -967,11 +991,11 @@ namespace crow
 
                 else
                 {
-                    const std::string& fragment = child->key;
+                    const std::string& fragment = child.key;
                     if (req_url.compare(pos, fragment.size(), fragment) == 0)
                     {
                         found_fragment = true;
-                        if (child->blueprint_index != INVALID_BP_ID) blueprints->push_back(child->blueprint_index);
+                        if (child.blueprint_index != INVALID_BP_ID) blueprints->push_back(child.blueprint_index);
                         auto ret = find(req_url, child, pos + fragment.size(), params, blueprints);
                         update_found(ret);
                         if (!blueprints->empty()) blueprints->pop_back();
@@ -985,10 +1009,15 @@ namespace crow
             return routing_handle_result{found, found_BP, match_params}; //Called after all the recursions have been done
         }
 
+        routing_handle_result find(const std::string& req_url) const
+        {
+            return find(req_url, head_);
+        }
+
         //This functions assumes any blueprint info passed is valid
         void add(const std::string& url, uint16_t rule_index, unsigned bp_prefix_length = 0, uint16_t blueprint_index = INVALID_BP_ID)
         {
-            Node* idx = &head_;
+            auto idx = &head_;
 
             bool has_blueprint = bp_prefix_length != 0 && blueprint_index != INVALID_BP_ID;
 
@@ -1012,16 +1041,16 @@ namespace crow
                         {ParamType::PATH, "<path>"},
                       };
 
-                    for (auto& x : paramTraits)
+                    for (const auto& x : paramTraits)
                     {
                         if (url.compare(i, x.name.size(), x.name) == 0)
                         {
                             bool found = false;
-                            for (Node* child : idx->children)
+                            for (auto& child : idx->children)
                             {
-                                if (child->param == x.type)
+                                if (child.param == x.type)
                                 {
-                                    idx = child;
+                                    idx = &child;
                                     i += x.name.size();
                                     found = true;
                                     break;
@@ -1030,7 +1059,7 @@ namespace crow
                             if (found)
                                 break;
 
-                            auto new_node_idx = new_node(idx);
+                            auto new_node_idx = &idx->add_child_node();
                             new_node_idx->param = x.type;
                             idx = new_node_idx;
                             i += x.name.size();
@@ -1046,16 +1075,16 @@ namespace crow
                     bool piece_found = false;
                     for (auto& child : idx->children)
                     {
-                        if (child->key[0] == c)
+                        if (child.key[0] == c)
                         {
-                            idx = child;
+                            idx = &child;
                             piece_found = true;
                             break;
                         }
                     }
                     if (!piece_found)
                     {
-                        auto new_node_idx = new_node(idx);
+                        auto new_node_idx = &idx->add_child_node();
                         new_node_idx->key = c;
                         //The assumption here is that you'd only need to add a blueprint index if the tree didn't have the BP prefix.
                         if (has_blueprint && i == bp_prefix_length)
@@ -1071,37 +1100,11 @@ namespace crow
             idx->rule_index = rule_index;
         }
 
-        size_t get_size()
-        {
-            return get_size(&head_);
-        }
-
-        size_t get_size(Node* node)
-        {
-            unsigned size = 5;          //rule_index, blueprint_index, and param
-            size += (node->key.size()); //each character in the key is 1 byte
-            for (auto child : node->children)
-            {
-                size += get_size(child);
-            }
-            return size;
-        }
-
-
     private:
-        Node* new_node(Node* parent)
-        {
-            auto& children = parent->children;
-            children.resize(children.size() + 1);
-            children[children.size() - 1] = new Node();
-            return children[children.size() - 1];
-        }
-
-
         Node head_;
     };
 
-    /// A blueprint can be considered a smaller section of a Crow app, specifically where the router is conecerned.
+    /// A blueprint can be considered a smaller section of a Crow app, specifically where the router is concerned.
 
     ///
     /// You can use blueprints to assign a common prefix to rules' prefix, set custom static and template folders, and set a custom catchall route.
@@ -1110,7 +1113,9 @@ namespace crow
     {
     public:
         Blueprint(const std::string& prefix):
-          prefix_(prefix){};
+          prefix_(prefix),
+          static_dir_(prefix),
+          templates_dir_(prefix){};
 
         Blueprint(const std::string& prefix, const std::string& static_dir):
           prefix_(prefix), static_dir_(static_dir){};
@@ -1141,8 +1146,12 @@ namespace crow
         Blueprint& operator=(Blueprint&& value) noexcept
         {
             prefix_ = std::move(value.prefix_);
+            static_dir_ = std::move(value.static_dir_);
+            templates_dir_ = std::move(value.templates_dir_);
             all_rules_ = std::move(value.all_rules_);
             catchall_rule_ = std::move(value.catchall_rule_);
+            blueprints_ = std::move(value.blueprints_);
+            mw_indices_ = std::move(value.mw_indices_);
             return *this;
         }
 
@@ -1166,11 +1175,20 @@ namespace crow
             return static_dir_;
         }
 
-        DynamicRule& new_rule_dynamic(std::string&& rule)
+        void set_added()
         {
-            std::string new_rule = std::move(rule);
-            new_rule = '/' + prefix_ + new_rule;
-            auto ruleObject = new DynamicRule(new_rule);
+            added_ = true;
+        }
+
+        bool is_added()
+        {
+            return added_;
+        }
+
+        DynamicRule& new_rule_dynamic(const std::string& rule)
+        {
+            std::string new_rule = '/' + prefix_ + rule;
+            auto ruleObject = new DynamicRule(std::move(new_rule));
             ruleObject->custom_templates_base = templates_dir_;
             all_rules_.emplace_back(ruleObject);
 
@@ -1178,13 +1196,12 @@ namespace crow
         }
 
         template<uint64_t N>
-        typename black_magic::arguments<N>::type::template rebind<TaggedRule>& new_rule_tagged(std::string&& rule)
+        typename black_magic::arguments<N>::type::template rebind<TaggedRule>& new_rule_tagged(const std::string& rule)
         {
-            std::string new_rule = std::move(rule);
-            new_rule = '/' + prefix_ + new_rule;
+            std::string new_rule = '/' + prefix_ + rule;
             using RuleT = typename black_magic::arguments<N>::type::template rebind<TaggedRule>;
 
-            auto ruleObject = new RuleT(new_rule);
+            auto ruleObject = new RuleT(std::move(new_rule));
             ruleObject->custom_templates_base = templates_dir_;
             all_rules_.emplace_back(ruleObject);
 
@@ -1240,6 +1257,7 @@ namespace crow
         CatchallRule catchall_rule_;
         std::vector<Blueprint*> blueprints_;
         detail::middleware_indices mw_indices_;
+        bool added_{false};
 
         friend class Router;
     };
@@ -1275,6 +1293,11 @@ namespace crow
             return catchall_rule_;
         }
 
+        void internal_add_rule_object(const std::string& rule, BaseRule* ruleObject)
+        {
+            internal_add_rule_object(rule, ruleObject, INVALID_BP_ID, blueprints_);
+        }
+
         void internal_add_rule_object(const std::string& rule, BaseRule* ruleObject, const uint16_t& BP_index, std::vector<Blueprint*>& blueprints)
         {
             bool has_trailing_slash = false;
@@ -1299,6 +1322,8 @@ namespace crow
                     per_methods_[method].trie.add(rule_without_trailing_slash, RULE_SPECIAL_REDIRECT_SLASH, BP_index != INVALID_BP_ID ? blueprints[BP_index]->prefix().length() : 0, BP_index);
                 }
             });
+
+            ruleObject->set_added();
         }
 
         void register_blueprint(Blueprint& blueprint)
@@ -1333,26 +1358,36 @@ namespace crow
             }
         }
 
+        void validate_bp()
+        {
+            //Take all the routes from the registered blueprints and add them to `all_rules_` to be processed.
+            detail::middleware_indices blueprint_mw;
+            validate_bp(blueprints_, blueprint_mw);
+        }
+
         void validate_bp(std::vector<Blueprint*> blueprints, detail::middleware_indices& current_mw)
         {
             for (unsigned i = 0; i < blueprints.size(); i++)
             {
                 Blueprint* blueprint = blueprints[i];
+
+                if (blueprint->is_added()) continue;
+
                 if (blueprint->static_dir_ == "" && blueprint->all_rules_.empty())
                 {
                     std::vector<HTTPMethod> methods;
                     get_recursive_child_methods(blueprint, methods);
                     for (HTTPMethod x : methods)
                     {
-                        int i = static_cast<int>(x);
-                        per_methods_[i].trie.add(blueprint->prefix(), 0, blueprint->prefix().length(), i);
+                        int method_index = static_cast<int>(x);
+                        per_methods_[method_index].trie.add(blueprint->prefix(), 0, blueprint->prefix().length(), method_index);
                     }
                 }
 
                 current_mw.merge_back(blueprint->mw_indices_);
                 for (auto& rule : blueprint->all_rules_)
                 {
-                    if (rule)
+                    if (rule && !rule->is_added())
                     {
                         auto upgraded = rule->upgrade();
                         if (upgraded)
@@ -1364,24 +1399,21 @@ namespace crow
                 }
                 validate_bp(blueprint->blueprints_, current_mw);
                 current_mw.pop_back(blueprint->mw_indices_);
+                blueprint->set_added();
             }
         }
 
         void validate()
         {
-            //Take all the routes from the registered blueprints and add them to `all_rules_` to be processed.
-            detail::middleware_indices blueprint_mw;
-            validate_bp(blueprints_, blueprint_mw);
-
             for (auto& rule : all_rules_)
             {
-                if (rule)
+                if (rule && !rule->is_added())
                 {
                     auto upgraded = rule->upgrade();
                     if (upgraded)
                         rule = std::move(upgraded);
                     rule->validate();
-                    internal_add_rule_object(rule->rule(), rule.get(), INVALID_BP_ID, blueprints_);
+                    internal_add_rule_object(rule->rule(), rule.get());
                 }
             }
             for (auto& per_method : per_methods_)
@@ -1403,9 +1435,9 @@ namespace crow
 
             if (!rule_index)
             {
-                for (auto& per_method : per_methods_)
+                for (auto& method : per_methods_)
                 {
-                    if (per_method.trie.find(req.url).rule_index)
+                    if (method.trie.find(req.url).rule_index)
                     {
                         CROW_LOG_DEBUG << "Cannot match method " << req.url << " " << method_name(req.method);
                         res = response(405);
@@ -1443,22 +1475,13 @@ namespace crow
 
             CROW_LOG_DEBUG << "Matched rule (upgrade) '" << rules[rule_index]->rule_ << "' " << static_cast<uint32_t>(req.method) << " / " << rules[rule_index]->get_methods();
 
-            // any uncaught exceptions become 500s
             try
             {
                 rules[rule_index]->handle_upgrade(req, res, std::move(adaptor));
             }
-            catch (std::exception& e)
-            {
-                CROW_LOG_ERROR << "An uncaught exception occurred: " << e.what();
-                res = response(500);
-                res.end();
-                return;
-            }
             catch (...)
             {
-                CROW_LOG_ERROR << "An uncaught exception occurred. The type was unknown so no information was available.";
-                res = response(500);
+                exception_handler_(res);
                 res.end();
                 return;
             }
@@ -1516,7 +1539,14 @@ namespace crow
                 std::vector<uint16_t> bpi = found.blueprint_indices;
                 if (bps_found[i]->catchall_rule().has_handler())
                 {
-                    bps_found[i]->catchall_rule().handler_(req, res);
+                    try
+                    {
+                        bps_found[i]->catchall_rule().handler_(req, res);
+                    }
+                    catch (...)
+                    {
+                        exception_handler_(res);
+                    }
 #ifdef CROW_ENABLE_DEBUG
                     return std::string("Redirected to Blueprint \"" + bps_found[i]->prefix() + "\" Catchall rule");
 #else
@@ -1526,7 +1556,14 @@ namespace crow
             }
             if (catchall_rule_.has_handler())
             {
-                catchall_rule_.handler_(req, res);
+                try
+                {
+                    catchall_rule_.handler_(req, res);
+                }
+                catch (...)
+                {
+                    exception_handler_(res);
+                }
 #ifdef CROW_ENABLE_DEBUG
                 return std::string("Redirected to global Catchall rule");
 #else
@@ -1686,23 +1723,14 @@ namespace crow
 
             CROW_LOG_DEBUG << "Matched rule '" << rules[rule_index]->rule_ << "' " << static_cast<uint32_t>(req.method) << " / " << rules[rule_index]->get_methods();
 
-            // any uncaught exceptions become 500s
             try
             {
                 auto& rule = rules[rule_index];
                 handle_rule<App>(rule, req, res, found.r_params);
             }
-            catch (std::exception& e)
-            {
-                CROW_LOG_ERROR << "An uncaught exception occurred: " << e.what();
-                res = response(500);
-                res.end();
-                return;
-            }
             catch (...)
             {
-                CROW_LOG_ERROR << "An uncaught exception occurred. The type was unknown so no information was available.";
-                res = response(500);
+                exception_handler_(res);
                 res.end();
                 return;
             }
@@ -1730,7 +1758,7 @@ namespace crow
                     return;
                 }
 
-                res.complete_request_handler_ = [&rule, &ctx, &container, &req, &res, &glob_completion_handler] {
+                res.complete_request_handler_ = [&rule, &ctx, &container, &req, &res, glob_completion_handler] {
                     detail::middleware_call_criteria_dynamic<true> crit_bwd(rule->mw_indices_.indices());
 
                     detail::after_handlers_call_helper<
@@ -1769,6 +1797,30 @@ namespace crow
             return blueprints_;
         }
 
+        std::function<void(crow::response&)>& exception_handler()
+        {
+            return exception_handler_;
+        }
+
+        static void default_exception_handler(response& res)
+        {
+            // any uncaught exceptions become 500s
+            res = response(500);
+
+            try
+            {
+                throw;
+            }
+            catch (const std::exception& e)
+            {
+                CROW_LOG_ERROR << "An uncaught exception occurred: " << e.what();
+            }
+            catch (...)
+            {
+                CROW_LOG_ERROR << "An uncaught exception occurred. The type was unknown so no information was available.";
+            }
+        }
+
     private:
         CatchallRule catchall_rule_;
 
@@ -1784,5 +1836,6 @@ namespace crow
         std::array<PerMethod, static_cast<int>(HTTPMethod::InternalMethodCount)> per_methods_;
         std::vector<std::unique_ptr<BaseRule>> all_rules_;
         std::vector<Blueprint*> blueprints_;
+        std::function<void(crow::response&)> exception_handler_ = &default_exception_handler;
     };
 } // namespace crow
