@@ -5,6 +5,6 @@ cc_binary(
     srcs = [
         "main.c",
     ],
-    linkopts = ["-lcurl"],
+    deps = ["@curl"],
     visibility = ["//visibility:public"],
 )
