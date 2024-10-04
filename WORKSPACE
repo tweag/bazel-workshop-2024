@@ -66,3 +66,32 @@ configure_make(
 
 
 # curl
+http_archive(
+    name = "curl",
+    url = "https://curl.se/download/curl-7.77.0.tar.gz",
+    integrity = "sha256-sKNCistg+lkETE0LquTk/AmumvHYo6qEsuP7zZmEH3c=",
+    strip_prefix = "curl-7.77.0",
+    build_file_content = """
+load("@rules_foreign_cc//foreign_cc:defs.bzl", "cmake")
+
+filegroup(
+    name = "curl_srcs",
+    srcs = glob(["**"]),
+)
+
+cmake(
+    name = "curl",
+    build_args = [" -j `nproc`"],
+    cache_entries = {
+        "BUILD_CURL_EXE": "off",
+        "BUILD_SHARED_LIBS": "off",
+        "CMAKE_PREFIX_PATH": ";$EXT_BUILD_DEPS/openssl",
+        "CURL_DISABLE_LDAP": "on",
+    },
+    lib_source = ":curl_srcs",
+    out_static_libs = ["libcurl.a"],
+    deps = ["@openssl"],
+    visibility = ["//visibility:public"],
+)
+    """,
+)
