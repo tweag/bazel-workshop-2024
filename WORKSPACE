@@ -28,3 +28,38 @@ rules_foreign_cc_dependencies(
 load("@bazel_features//:deps.bzl", "bazel_features_deps")
 
 bazel_features_deps()
+
+
+# openssl
+http_archive(
+    name = "openssl",
+    url = "https://www.openssl.org/source/old/1.1.1/openssl-1.1.1w.tar.gz",
+    integrity = "sha256-zzCYlQy02FOtlcCEHx+cbT3BAtzPys1SHZOSUgi3asg=",
+    strip_prefix = "openssl-1.1.1w",
+    build_file_content = """
+load("@rules_foreign_cc//foreign_cc:configure.bzl", "configure_make")
+
+filegroup(
+    name = "openssl_srcs",
+    srcs = glob(["**"]),
+)
+
+configure_make(
+    name = "openssl",
+    args = [" -j `nproc`"],
+    configure_command = "Configure",
+    configure_options = [
+        "no-async",
+        "no-hw-padlock",
+        "no-capieng",
+        "linux-x86_64",
+    ],
+    lib_source = ":openssl_srcs",
+    out_static_libs = [
+        "libssl.a",
+        "libcrypto.a",
+    ],
+    visibility = ["//visibility:public"],
+)
+    """,
+)
