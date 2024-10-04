@@ -57,6 +57,6 @@ RUN chown -R $UID:$UID /bazel_cache
 USER ${USERNAME}
 WORKDIR /home/${USERNAME}
 
-# Pre-download Bazel 7.3.1
+# Pre-download Bazel via Bazelisk
 COPY .bazelversion /tmp/.bazelversion
-RUN cd /tmp/ && bazel --version
+RUN cd /tmp/ && touch WORKSPACE && bazel --version
