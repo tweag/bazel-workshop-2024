@@ -18,9 +18,11 @@ RUN \
         git \
         git-lfs \
         jq \
+        less \
         libasio-dev \
         libcurl4-openssl-dev \
         make \
+        nano \
         openssh-client \
         python3 \
         python3-pip  \
