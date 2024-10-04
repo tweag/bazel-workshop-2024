@@ -21,6 +21,7 @@ RUN \
         less \
         libasio-dev \
         libcurl4-openssl-dev \
+        libxml2 \
         make \
         nano \
         openssh-client \
