@@ -119,3 +119,20 @@ llvm_toolchain(
 load("@llvm_toolchain//:toolchains.bzl", "llvm_register_toolchains")
 
 llvm_register_toolchains()
+
+# asio
+http_archive(
+    name = "asio",
+    url = "https://downloads.sourceforge.net/asio/asio-1.30.2.tar.gz",
+    integrity = "sha256-Eue7Ta2ovBGR3p1VClnuZYzk5kX/yXyRHAmatOhpnVU=",
+    strip_prefix = "asio-1.30.2/",
+    build_file_content = """
+load("@rules_cc//cc:defs.bzl", "cc_library")
+cc_library(
+    name = "asio",
+    hdrs = glob(["include/**/*.h", "include/**/*.hpp", "include/**/*.ipp"]),
+    strip_include_prefix = "include",
+    visibility = ["//visibility:public"],
+)
+    """,
+)
