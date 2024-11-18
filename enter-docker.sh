@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-docker build -t bazel_workshop_devcontainer .
+docker pull ghcr.io/tweag/bazel-workshop-2024:latest
 
 docker run -it \
    --privileged \
@@ -9,4 +9,4 @@ docker run -it \
     --workdir /workspaces/bazel-workshop-2024 \
    --mount type=volume,source=bazel_workshop_env_command_history,target=/command_history \
    --mount type=volume,source=bazel_workshop_env_bazel_cache,target=/bazel_cache \
-    bazel_workshop_devcontainer
+    ghcr.io/tweag/bazel-workshop-2024:latest
