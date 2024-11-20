@@ -66,25 +66,3 @@ configure_make(
 
 
 # curl
-# http_archive(
-#     name = "curl",
-#     url = "https://curl.se/download/curl-7.77.0.tar.gz",
-# )
-### Hints:
-### - Try starting with the above code uncommented
-### - Run `bazel sync --only=curl` to get a hint about the integrity check
-### - `cd $(bazel info output_base)/external/curl` and look around to see what we downloaded.
-### - What to do next?
-###   - We probably want to pass similar attributes as openssl does above...
-###   - openssl uses the configure_make() rule, but curl want to use the cmake() rule instead.
-###   - Documentation: https://bazel-contrib.github.io/rules_foreign_cc/cmake.html
-###   - We want to configure the CMake build like this (aka. CMake cache entries): {
-###       "BUILD_CURL_EXE": "off",
-###       "BUILD_SHARED_LIBS": "off",
-###       "CMAKE_PREFIX_PATH": ";$EXT_BUILD_DEPS/openssl",
-###       "CURL_DISABLE_LDAP": "on",
-###     }
-###   - We want to tell Bazel that curl depends on openssl.
-###     - The appropriate label for openssl is "@openssl" (or "@openssl//:openssl").
-###   - lib_source is similar to openssl
-###   - out_static_libs also, the library we want to expose from the curl build is "libcurl.a"

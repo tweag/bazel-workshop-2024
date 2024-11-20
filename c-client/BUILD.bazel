@@ -8,8 +8,3 @@ cc_binary(
     linkopts = ["-lcurl"],
     visibility = ["//visibility:public"],
 )
-### Hints:
-### - We want a proper Bazel dependency from c-client to the curl library.
-###   - The appropriate cc_binary attribute is called deps, and we can use the
-###     label "@curl" (short for "@curl//:curl") to refer to our curl library.
-### - When the proper dependency is in place, we no longer need to pass -lcurl link option.
