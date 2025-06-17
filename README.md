@@ -1,5 +1,11 @@
 # Introductory workshop for Bazel
 
+This code was developed to accompany a workshop that we ran a few times in
+2024 and 2025 for a client. Since then, the slides have been cleaned up and
+made public; you can find them [here][slides].
+
+[slides]: https://docs.google.com/presentation/d/1OBh9j65GS3eBxEIvMV4l0Fv_qAUGfxEzzQXPzEpAzQs/edit?usp=sharing
+
 ## The code base
 
 This is the Cookie Machine project. It implements a simple HTTP API for ordering
