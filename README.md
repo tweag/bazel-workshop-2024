@@ -43,7 +43,7 @@ development environment:
 bazel --version
 ```
 
-This should report back `bazel 7.3.1`.
+This should report back `bazel 7.3.2`.
 
 ## Devcontainer Compatibility
 
